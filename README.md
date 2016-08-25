@@ -1,6 +1,6 @@
-# xy-VSFilter
+# XySubFilter - Overlay
 
-This branch of xySubFilter renders the subtitles in an overlay window on the primary monitor. 
+This branch of XySubFilter renders the subtitles in an overlay window on the primary monitor. 
 
 Ideal for multitaskers watching foreign shows & films.
 
