@@ -22,3 +22,4 @@ Hence the subtitles in the overlay may be out of sync by some number of ms.
 ie. Find a more elegant way to hook into the render process.
 4. Configuration. Such as ability to turn on/off or chose a different display monitor. 
 Currently can only be turned on/off by switching dlls and restarting player
+5. Improve alpha-blending of rendered subtitles onto transparent overlay window
