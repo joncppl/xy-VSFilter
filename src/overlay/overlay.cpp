@@ -231,7 +231,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				bitmapinfo.bmiHeader.biCompression = BI_RGB;
 				bitmapinfo.bmiHeader.biBitCount = 32;
 
-				unsigned char* vImageBuff = NULL;
+				DWORD* vImageBuff = NULL;
 				HDC hdcMem = CreateCompatibleDC(hdc);
 				if (!hdcMem) {
 #ifdef DEBUG
@@ -246,12 +246,45 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 					if (vImageBuff) {
 						memcpy(vImageBuff, (unsigned char *)(pixels), size.cy*(size.cx - offset) * 4);
+						int x = GetDeviceCaps(hdc, HORZRES);
+						int y = GetDeviceCaps(hdc, VERTRES);
+
+						//premultiply alpha
+						for (int j = 0; j < size.cy; ++j)
+						{
+							for (int i = 0; i < size.cx - offset; ++i)
+							{
+								int index = (size.cy - j - 1) * (size.cx - offset) + i;
+
+								DWORD d = vImageBuff[index];
+
+								BYTE a = d >> 24;
+								BYTE pmR = static_cast<BYTE>(((d & 0x00FF0000) >> 16));
+								BYTE pmG = static_cast<BYTE>(((d & 0x0000FF00) >> 8));
+								BYTE pmB = static_cast<BYTE>(((d & 0x000000FF)));
+
+								//currently not using alpha, so don't multiply for now
+								if (0)
+								{
+									pmR *= a / 255;
+									pmG *= a / 255;
+									pmB *= a / 255;
+								}
+
+								//hack to fix displaying black
+								if (a && pmR == 0 && pmG == 0 && pmB == 0)
+								{
+									pmR = pmG = pmB = 1; //"almost black", but not eaten by alpha filter.
+								}
+
+								d = pmB | (pmG << 8) | (pmR << 16) | (a << 24);
+								vImageBuff[index] = d;
+							}
+						}
+
 						GetObject(bitmap, sizeof(BITMAP), &bm);
 						hOldBitmap = (HBITMAP)SelectObject(hdcMem, bitmap);
 						RealizePalette(hdc);
-
-						int x = GetDeviceCaps(hdc, HORZRES);
-						int y = GetDeviceCaps(hdc, VERTRES);
 
 						double xscale = (double)x / clipRect.right;
 						double yscale = (double)y / clipRect.bottom;
