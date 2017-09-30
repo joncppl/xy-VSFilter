@@ -124,7 +124,8 @@ DWORD WINAPI _trigger_paint(LPVOID dummy)
 						//copy the subtitle bitmap into the screen dib
 						memcpy(vImageBuff, (void *)(pixels), size.cy*(size.cx - offset) * 4);
 						// we can now free the pixels
-						free( *( ( ( void **) pixels ) ) );
+						//free( *( ( ( void **) pixels ) ) );
+						free((void *)subs[idx].pixels);
 						pixels = NULL;
 					}
 
