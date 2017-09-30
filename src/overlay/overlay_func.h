@@ -1,4 +1,5 @@
 #pragma once
+#include <queue>
 
 #ifdef FROM_OVERLAY
 typedef ULONGLONG REFERENCE_TIME;
@@ -6,8 +7,9 @@ typedef ULONGLONG REFERENCE_TIME;
 
 #include "../../include/SubRenderIntf.h"
 
-void overlay_send_frame(ISubRenderFrame *sub_frame);
+void overlay_send_frame(ISubRenderFrame *sub_frame, long long start, long long stop);
 void trigger_paint();
+extern BOOL overlay_is_open();
 
 DWORD WINAPI init_overlay(LPVOID lpParam);
 void clear_screen();
@@ -23,5 +25,6 @@ typedef struct {
 } tsubdata;
 
 extern ISubRenderFrame *frame;
-extern std::vector<tsubdata> subs;
+extern std::queue<std::vector<tsubdata>> subs_queue;
+//extern std::vector<tsubdata> subs;
 extern RECT clipRect;

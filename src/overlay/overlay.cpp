@@ -2,17 +2,22 @@
 //
 
 #include "stdafx.h"
+#include "assert.h"
 #include "overlay.h"
 #include "overlay_func.h"
+#include "overlay_config.h"
 
-
+#undef DEBUG
 #define MAX_LOADSTRING 100
+#define ALPHA_PERCENT 70
+
 
 FILE *mylog = NULL;
 const char logFile[] = "\\Desktop\\xy.log";
 
 ISubRenderFrame *frame = NULL;
-std::vector<tsubdata> subs;
+std::queue<std::vector<tsubdata>> subs_queue;
+//std::vector<tsubdata> subs;
 
 RECT clipRect;
 
@@ -28,16 +33,229 @@ BOOL				InitInstance(HINSTANCE);
 LRESULT CALLBACK	WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK	About(HWND, UINT, WPARAM, LPARAM);
 
+BOOL overlay_is_open()
+{
+	return IsWindow(hWnd);
+}
+
+DWORD WINAPI _trigger_paint(LPVOID dummy)
+{
+	static BOOL running = FALSE;
+	
+	if (subs_queue.size() < 10) {
+		return 0;
+	}
+	while (running)
+	{
+		Sleep(1);
+	}
+	running = TRUE;
+	std::vector<tsubdata> subs = subs_queue.front();
+
+	HDC hdcScreen = GetDC(NULL);
+	HBITMAP       hOldBitmap;
+	BITMAP        bm;
+
+	ULONG x = GetDeviceCaps(hdcScreen, HORZRES);
+	ULONG y = GetDeviceCaps(hdcScreen, VERTRES);
+
+	//create a transparent bitmap to start with
+	ULONG   ulWindowWidth = x;
+	ULONG   ulWindowHeight = y;
+	HBITMAP hbitmap;       // bitmap handle 
+	BITMAPINFO bmi;        // bitmap header 
+	bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+	bmi.bmiHeader.biWidth = ulWindowWidth;
+	bmi.bmiHeader.biHeight = ulWindowHeight;
+	bmi.bmiHeader.biPlanes = 1;
+	bmi.bmiHeader.biBitCount = 32;         // four 8-bit components 
+	bmi.bmiHeader.biCompression = BI_RGB;
+	bmi.bmiHeader.biSizeImage = ulWindowWidth * ulWindowHeight * 4;
+	VOID *pvBits;
+	HDC hdcMem2 = CreateCompatibleDC(hdcScreen);
+	// create our DIB section and select the bitmap into the dc 
+	hbitmap = CreateDIBSection(hdcMem2, &bmi, DIB_RGB_COLORS, &pvBits, NULL, 0x0);
+	SelectObject(hdcMem2, hbitmap);
+	HBITMAP hOldBitmap2 = (HBITMAP)SelectObject(hdcMem2, hbitmap);
+	
+	//fill the bitmap entirely with alpha
+	for (UINT32 y = 0; y < ulWindowHeight; y++)
+		for (UINT32 x = 0; x < ulWindowWidth; x++)
+			((UINT32 *)pvBits)[x + y * ulWindowWidth] = 0x00000000;
+
+	//iterate over all bitmaps
+	for (int idx = 0; idx < subs.size(); idx++)
+	{
+		POINT position = subs[idx].position;
+		SIZE size = subs[idx].size;
+		LPVOID pixels = (LPVOID) subs[idx].pixels;
+		int pitch = subs[idx].pitch;
+		const int offset = (pitch - size.cx * 4) / -4;
+
+		if (pixels != NULL)
+		{
+			BITMAPINFO bitmapinfo = { 0 };
+			bitmapinfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+			bitmapinfo.bmiHeader.biWidth = size.cx - offset;
+			bitmapinfo.bmiHeader.biHeight = size.cy*-1;
+			bitmapinfo.bmiHeader.biPlanes = 1;
+			bitmapinfo.bmiHeader.biCompression = BI_RGB;
+			bitmapinfo.bmiHeader.biBitCount = 32;
+			DWORD* vImageBuff = NULL;
+			HDC hdcMem = CreateCompatibleDC(hdcScreen);
+
+			if (!hdcMem) {
+#ifdef DEBUG
+				int err = GetLastError();
+				fprintf(mylog, "CreateCompatibleDC returned null... %d\n", err);
+				fflush(mylog);
+#endif
+			}
+			else
+			{
+
+				// create screen compatible DIB
+				HBITMAP bitmap = CreateDIBSection(hdcMem, &bitmapinfo, DIB_RGB_COLORS, (void **)&vImageBuff, NULL, 0);
+				SelectObject(hdcMem, bitmap);
+
+				if (vImageBuff) {
+					if (pixels != NULL)
+					{
+						//copy the subtitle bitmap into the screen dib
+						memcpy(vImageBuff, (void *)(pixels), size.cy*(size.cx - offset) * 4);
+						// we can now free the pixels
+						free( *( ( ( void **) pixels ) ) );
+						pixels = NULL;
+					}
+
+					GetObject(bitmap, sizeof(BITMAP), &bm);
+					hOldBitmap = (HBITMAP)SelectObject(hdcMem, bitmap);
+					RealizePalette(hdcScreen);
+
+					// determine scaling
+
+					double xscale = (double)x / clipRect.right;
+					double yscale = (double)y / clipRect.bottom;
+
+					int xpos = position.x;
+					int ypos = position.y;
+
+					double outAspect = (double)x / y;
+					double inAspect = (double)clipRect.right / clipRect.bottom;
+
+					double extraXScale = 1.0;
+					double extraYScale = 1.0;
+
+					//eg: 4:3 -> 16:9
+					if (inAspect < outAspect)
+					{
+						double xp = (double)clipRect.right / clipRect.bottom * y;
+						xpos *= xp / clipRect.right;
+						xpos += (x - xp) / 2;
+
+						ypos *= yscale;
+						extraXScale = outAspect / inAspect;
+					}
+					//eg: 16:9 -> 4:3
+					else if (outAspect > inAspect)
+					{
+						double yp = (double)x / (clipRect.right / clipRect.bottom);
+						ypos *= yp / clipRect.bottom;
+						ypos += (y - yp) / 2;
+						xpos *= xscale;
+						extraYScale = inAspect / outAspect;
+					}
+					//aspect ratios match so scaling is straightforward
+					else
+					{
+						xpos *= xscale;
+						ypos *= yscale;
+					}
+
+					int olddimx = bm.bmWidth + offset;
+					int olddimy = bm.bmHeight;
+					int newdimx = (bm.bmWidth + offset)*xscale / (extraXScale);
+					int newdimy = bm.bmHeight*yscale / (extraYScale);
+
+					BLENDFUNCTION bf;
+					bf.BlendOp = AC_SRC_OVER;
+					bf.BlendFlags = 0;
+					bf.AlphaFormat = AC_SRC_ALPHA;  // use source alpha  
+					bf.SourceConstantAlpha = 255;  // opaque (disable constant alpha) 
+
+					// blend the bitmap into the main image
+					BOOL ret = AlphaBlend(hdcMem2,
+						xpos, ypos, //out position
+						newdimx, newdimy,  //out size
+						hdcMem,
+						0, 0, //in position
+						olddimx, olddimy, //in size
+						bf);
+#ifdef DEBUG
+					int err = GetLastError();
+					fprintf(mylog, "AlphaBlendFailed %d\n", err);
+					fflush(mylog);
+#endif
+
+					SelectObject(hdcMem, hOldBitmap);
+					DeleteObject(hOldBitmap);
+					DeleteObject(hbitmap);
+					DeleteObject(bitmap);
+					DeleteDC(hdcMem);
+				}
+#ifdef DEBUG
+				else
+				{
+					int err = GetLastError();
+					fprintf(mylog, "null vImageBuff... %d\n", err);
+					fflush(mylog);
+				}
+#endif
+			}
+
+		}
+	}
+
+	BLENDFUNCTION bf;
+	bf.BlendOp = AC_SRC_OVER;
+	bf.BlendFlags = 0;
+	bf.AlphaFormat = AC_SRC_ALPHA;  // use source alpha  
+	bf.SourceConstantAlpha = 255 * Opacity() / 100;
+
+	POINT ptZero = { 0 };
+	SIZE winsize = { ulWindowWidth, ulWindowHeight };
+	
+	// copy the generated bitmap into the window control, updating the window alpha
+	BOOL res = UpdateLayeredWindow(hWnd, hdcScreen, NULL, &winsize, hdcMem2, &ptZero, RGB(255, 255, 255), &bf, ULW_ALPHA);
+#ifdef DEBUG
+	if (!res)
+	{
+		int err = GetLastError();
+		fprintf(mylog, "UpdateLayerWindow error %d\n", err);
+		fflush(mylog);
+	}
+#endif
+	SelectObject(hdcMem2, hOldBitmap2);
+	DeleteObject(hOldBitmap2);
+	DeleteDC(hdcMem2);
+	ReleaseDC(NULL, hdcScreen);
+
+	subs.clear();
+	subs_queue.pop();
+	running = FALSE;
+	return 0;
+}
+
 void trigger_paint()
 {
-	//RedrawWindow(hWnd, NULL, NULL, RDW_INTERNALPAINT);
-	InvalidateRect(hWnd, NULL, TRUE);
+	CreateThread(0, NULL, _trigger_paint, NULL, NULL, NULL);
 }
 
 void clear_screen()
 {
-	subs.clear();
-	frame = NULL();
+	std::vector<tsubdata> empty;
+	subs_queue.push(empty);
+	//subs.clear();
 	trigger_paint();
 }
 
@@ -54,14 +272,13 @@ DWORD WINAPI init_overlay(LPVOID lpParam)
 	mylog = fopen(logFileName, "a");
 #endif
 
-
 	// Initialize global strings
 	wcscpy(szTitle, _T("overlay"));
 	wcscpy(szWindowClass, _T("OVERLAY"));
 	MyRegisterClass(hInstance);
 
 	// Perform application initialization:
-	if (!InitInstance (hInstance))
+	if (!InitInstance(hInstance))
 	{
 		return FALSE;
 	}
@@ -79,7 +296,7 @@ DWORD WINAPI init_overlay(LPVOID lpParam)
 		}
 	}
 
-	return (int) msg.wParam;
+	return (int)msg.wParam;
 }
 
 //
@@ -93,16 +310,16 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 
 	wcex.cbSize = sizeof(WNDCLASSEX);
 
-	wcex.style			= CS_HREDRAW | CS_VREDRAW;
-	wcex.lpfnWndProc	= WndProc;
-	wcex.cbClsExtra		= 0;
-	wcex.cbWndExtra		= 0;
-	wcex.hInstance		= hInstance;
+	wcex.style = CS_HREDRAW | CS_VREDRAW;
+	wcex.lpfnWndProc = WndProc;
+	wcex.cbClsExtra = 0;
+	wcex.cbWndExtra = 0;
+	wcex.hInstance = hInstance;
 	wcex.hIcon = NULL;// LoadIcon(hInstance, MAKEINTRESOURCE(IDI_OVERLAY));
 	wcex.hCursor = NULL;// LoadCursor(NULL, IDC_ARROW);
 	wcex.hbrBackground = CreateSolidBrush(RGB(0, 0, 0));//(HBRUSH)(COLOR_WINDOW+1);
 	wcex.lpszMenuName = NULL;// MAKEINTRESOURCE(IDC_OVERLAY);
-	wcex.lpszClassName	= szWindowClass;
+	wcex.lpszClassName = szWindowClass;
 	wcex.hIconSm = NULL;// LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_SMALL));
 
 	return RegisterClassEx(&wcex);
@@ -120,45 +337,30 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
 //
 BOOL InitInstance(HINSTANCE hInstance)
 {
-   hInst = hInstance; // Store instance handle in our global variable
+	hInst = hInstance; // Store instance handle in our global variable
 
-   hWnd = CreateWindow(szWindowClass, szTitle, WS_OVERLAPPEDWINDOW,
-      0, 0, 100, 100, NULL, NULL, hInstance, NULL);
-
-   if (!hWnd)
-   {
-      return FALSE;
-   }   
-
-	ShowWindow(hWnd, SW_SHOWNA);
-	UpdateWindow(hWnd);
-  
-	SetWindowLong(hWnd, GWL_STYLE, GetWindowLong(hWnd, GWL_STYLE) ^ (WS_CAPTION | WS_OVERLAPPEDWINDOW));
-
+	// the primary monitor resolution 
 	int x = GetSystemMetrics(SM_CXSCREEN);
 	int y = GetSystemMetrics(SM_CYSCREEN);
+	//TODO: support for non-primary monitor
+	//Check EnumDisplayMonitors https://msdn.microsoft.com/en-us/library/windows/desktop/dd162610(v=vs.85).aspx
 
-	// Set WS_EX_LAYERED on this window 
-	SetWindowLong(hWnd, GWL_EXSTYLE,
-		GetWindowLong(hWnd, GWL_EXSTYLE) | WS_EX_COMPOSITED | WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST);
-	// Make this window alpha
-	SetLayeredWindowAttributes(hWnd, RGB(0,0,0), 255*70/100, LWA_COLORKEY);
+	// create a window with properties
+	// Layered: allows alpha
+	// transparent: it can be clicked through
+	// topmost: always on top
+	// make the window the same size as the monitor
+	hWnd = CreateWindowEx(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST, szWindowClass, NULL, WS_POPUP | WS_VISIBLE,
+		0, 0, x, y, NULL, NULL, hInstance, NULL);
 
-	BOOL ret = SetWindowPos(hWnd,
-		HWND_TOPMOST,
-		0,
-		0,
-		x,
-		y,
-		SWP_SHOWWINDOW);
-	SetFocus(hWnd);
-	SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-   
 
-   SetCapture(hWnd);
-   ShowCursor(false);
+	if (!hWnd)
+	{
+		return FALSE;
+	}
 
-   return TRUE;
+	ShowWindow(hWnd, SW_SHOWNA);
+	return TRUE;
 }
 
 //
@@ -173,6 +375,8 @@ BOOL InitInstance(HINSTANCE hInstance)
 //
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
+	//even though this doesn't actually do anything, it's included to make windows confident the window is running smoothly
+	
 	int wmId, wmEvent;
 	PAINTSTRUCT ps;
 	HDC hdc = NULL;
@@ -180,199 +384,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	switch (message)
 	{
 	case WM_COMMAND:
-		wmId    = LOWORD(wParam);
+		wmId = LOWORD(wParam);
 		wmEvent = HIWORD(wParam);
-		// Parse the menu selections:
-		switch (wmId)
-		{
-		case IDM_ABOUT:
-			DialogBox(hInst, MAKEINTRESOURCE(IDD_ABOUTBOX), hWnd, About);
-			break;
-		case IDM_EXIT:
-			DestroyWindow(hWnd);
-			break;
-		default:
-			return DefWindowProc(hWnd, message, wParam, lParam);
-		}
+		return DefWindowProc(hWnd, message, wParam, lParam);
 		break;
 	case WM_PAINT:
-		SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
-		hdc = BeginPaint(hWnd, &ps);
-		if (!hdc)
-		{
-#ifdef DEBUG
-			int err = GetLastError();
-			fprintf(mylog, "Begin Paint returned null... %d\n", err);
-			fflush(mylog);
-#endif
-			break;
-		}
-
-		for (int idx = 0; idx < subs.size(); idx++)
-		{
-
-			POINT position = subs[idx].position;
-			SIZE size = subs[idx].size;
-			LPCVOID pixels = subs[idx].pixels;
-			int pitch = subs[idx].pitch;
-
-			if (pixels)
-			{
-				HBITMAP       hOldBitmap;
-				BITMAP        bm;
-
-				const int offset = (pitch - size.cx * 4) / -4;
-
-				BITMAPINFO bitmapinfo = { 0 };
-				bitmapinfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-				bitmapinfo.bmiHeader.biWidth = size.cx - offset;
-				bitmapinfo.bmiHeader.biHeight = size.cy*-1;
-				bitmapinfo.bmiHeader.biPlanes = 1;
-				bitmapinfo.bmiHeader.biCompression = BI_RGB;
-				bitmapinfo.bmiHeader.biBitCount = 32;
-
-				DWORD* vImageBuff = NULL;
-				HDC hdcMem = CreateCompatibleDC(hdc);
-				if (!hdcMem) {
-#ifdef DEBUG
-					int err = GetLastError();
-					fprintf(mylog, "CreateCompatibleDC returned null... %d\n", err);
-					fflush(mylog);
-#endif
-				}
-				else
-				{
-					HBITMAP bitmap = CreateDIBSection(hdcMem, &bitmapinfo, DIB_RGB_COLORS, (void **)&vImageBuff, NULL, 0);
-
-					if (vImageBuff) {
-						memcpy(vImageBuff, (unsigned char *)(pixels), size.cy*(size.cx - offset) * 4);
-						int x = GetDeviceCaps(hdc, HORZRES);
-						int y = GetDeviceCaps(hdc, VERTRES);
-
-						//premultiply alpha
-						for (int j = 0; j < size.cy; ++j)
-						{
-							for (int i = 0; i < size.cx - offset; ++i)
-							{
-								int index = (size.cy - j - 1) * (size.cx - offset) + i;
-
-								DWORD d = vImageBuff[index];
-
-								BYTE a = d >> 24;
-								BYTE pmR = static_cast<BYTE>(((d & 0x00FF0000) >> 16));
-								BYTE pmG = static_cast<BYTE>(((d & 0x0000FF00) >> 8));
-								BYTE pmB = static_cast<BYTE>(((d & 0x000000FF)));
-
-								//currently not using alpha, so don't multiply for now
-								if (0)
-								{
-									pmR *= a / 255;
-									pmG *= a / 255;
-									pmB *= a / 255;
-								}
-
-								//hack to fix displaying black
-								if (a && pmR == 0 && pmG == 0 && pmB == 0)
-								{
-									pmR = pmG = pmB = 1; //"almost black", but not eaten by alpha filter.
-								}
-
-								d = pmB | (pmG << 8) | (pmR << 16) | (a << 24);
-								vImageBuff[index] = d;
-							}
-						}
-
-						GetObject(bitmap, sizeof(BITMAP), &bm);
-						hOldBitmap = (HBITMAP)SelectObject(hdcMem, bitmap);
-						RealizePalette(hdc);
-
-						double xscale = (double)x / clipRect.right;
-						double yscale = (double)y / clipRect.bottom;
-
-						int xpos = position.x;
-						int ypos = position.y;
-						
-						double outAspect = (double)x / y;
-						double inAspect = (double)clipRect.right / clipRect.bottom;
-						
-						double extraXScale = 1.0;
-						double extraYScale = 1.0;
-
-						//eg: 4:3 -> 16:9
-						if (inAspect < outAspect)
-						{
-							double xp = (double)clipRect.right / clipRect.bottom * y;
-							xpos *= xp / clipRect.right;
-							xpos += (x - xp) / 2;
-
-							ypos *= yscale;
-							extraXScale = outAspect / inAspect;
-						}
-						//eg: 16:9 -> 4:3
-						else if (outAspect > inAspect)
-						{
-							double yp = (double)x / (clipRect.right / clipRect.bottom);
-							ypos *= yp / clipRect.bottom;
-							ypos += (y - yp) / 2;
-							xpos *= xscale;
-							extraYScale = inAspect / outAspect;
-						}
-						//aspect ratios match so scaling is straightforward
-						else
-						{
-							xpos *= xscale;
-							ypos *= yscale;
-						}
-						
-
-						StretchBlt(hdc,
-							xpos, ypos, //out position
-							(bm.bmWidth + offset)*xscale / (extraXScale), bm.bmHeight*yscale / (extraYScale),  //out size
-							hdcMem, 
-							0, 0, //in position
-							bm.bmWidth + offset, bm.bmHeight, //in size
-							SRCCOPY);
-
-						SelectObject(hdcMem, hOldBitmap);
-						DeleteObject(bitmap);
-						DeleteObject(hOldBitmap);
-						DeleteDC(hdcMem);
-					}
-#ifdef DEBUG
-					else
-					{
-						int err = GetLastError();
-						fprintf(mylog, "null vImageBuff... %d\n", err);
-						fflush(mylog);
-					}
-#endif
-				}				
-
-			}
-		}
-
-		subs.clear();
-
-		if (frame)
-		{
-			//frame->Release();
-			frame = NULL;
-		}
-
-		DeleteDC(hdc);
-		EndPaint(hWnd, &ps);
 		break;
 	case WM_DESTROY:
 		PostQuitMessage(0);
 		break;
 	case WM_MOUSEMOVE:
-		//fprintf(stdout, "Mouse move [%d][%d]\n", GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
-		SetForegroundWindow(hWnd);
+		//SetForegroundWindow(hWnd);
 		break;
 
 	case WM_LBUTTONDOWN:
-		printf("Mouse click\n");
-		SetForegroundWindow(hWnd);
+		//SetForegroundWindow(hWnd);
 		break;
 
 	case WM_NCACTIVATE:
@@ -391,26 +417,4 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		return DefWindowProc(hWnd, message, wParam, lParam);
 	}
 	return 0;
-}
-
-// Message handler for about box.
-INT_PTR CALLBACK About(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
-{
-	UNREFERENCED_PARAMETER(lParam);
-	switch (message)
-	{
-	case WM_INITDIALOG:
-		return (INT_PTR)TRUE;
-
-	case WM_COMMAND:
-		if (LOWORD(wParam) == IDOK || LOWORD(wParam) == IDCANCEL)
-		{
-			EndDialog(hDlg, LOWORD(wParam));
-			return (INT_PTR)TRUE;
-		}
-		break;
-	
-	}
-
-	return (INT_PTR)FALSE;
 }

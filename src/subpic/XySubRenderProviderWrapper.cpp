@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "XySubRenderProviderWrapper.h"
+#include "../overlay/overlay_config.h"
 
 #if ENABLE_XY_LOG_RENDERER_REQUEST2
 #  define TRACE_RENDERER_REQUEST(msg) XY_LOG_TRACE(msg)
@@ -350,6 +351,14 @@ STDMETHODIMP XySubRenderProviderWrapper2::RequestFrame( IXySubRenderFrame**subRe
         m_output_rect          = output_rect;
         m_subtitle_target_rect = subtitle_target_rect;
     }
+
+	// This is very hacky... 
+	if (OverrideSize())
+	{	
+		POINT rect = RenderSize();
+		m_output_rect = CRect(CPoint(), CPoint(rect.x, rect.y));
+		m_subtitle_target_rect = m_output_rect;
+	}
 
     if (m_xy_sub_render_frame)
     {

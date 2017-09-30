@@ -1250,7 +1250,7 @@ STDMETHODIMP XySubFilter::RequestFrame( REFERENCE_TIME start, REFERENCE_TIME sto
     //fix me: print osd message
     TRACE_RENDERER_REQUEST("Returnning "<<XY_LOG_VAR_2_STR(hr)<<XY_LOG_VAR_2_STR(sub_render_frame));
 	hr = m_consumer->DeliverFrame(start, stop, context, sub_render_frame);
-	overlay_send_frame(sub_render_frame2);
+	overlay_send_frame(sub_render_frame2, start, stop);
     return hr;
 }
 
