@@ -14,6 +14,7 @@
 
 FILE *mylog = NULL;
 const char logFile[] = "\\Desktop\\xy.log";
+std::mutex g_sub_queue_mutex;
 
 ISubRenderFrame *frame = NULL;
 std::queue<std::vector<tsubdata>> subs_queue;
@@ -41,8 +42,11 @@ BOOL overlay_is_open()
 DWORD WINAPI _trigger_paint(LPVOID dummy)
 {
 	static BOOL running = FALSE;
-	
-	if (subs_queue.size() < 10) {
+	g_sub_queue_mutex.lock();
+	size_t queue_size = subs_queue.size();
+	//g_sub_queue_mutex.unlock();
+	if (queue_size < 10) {
+		g_sub_queue_mutex.unlock();
 		return 0;
 	}
 	while (running)
@@ -50,7 +54,9 @@ DWORD WINAPI _trigger_paint(LPVOID dummy)
 		Sleep(1);
 	}
 	running = TRUE;
+	//g_sub_queue_mutex.lock();
 	std::vector<tsubdata> subs = subs_queue.front();
+	//g_sub_queue_mutex.unlock();
 
 	HDC hdcScreen = GetDC(NULL);
 	HBITMAP       hOldBitmap;
@@ -242,7 +248,9 @@ DWORD WINAPI _trigger_paint(LPVOID dummy)
 	ReleaseDC(NULL, hdcScreen);
 
 	subs.clear();
+	//g_sub_queue_mutex.lock();
 	subs_queue.pop();
+	g_sub_queue_mutex.unlock();
 	running = FALSE;
 	return 0;
 }
@@ -255,7 +263,9 @@ void trigger_paint()
 void clear_screen()
 {
 	std::vector<tsubdata> empty;
+	g_sub_queue_mutex.lock();
 	subs_queue.push(empty);
+	g_sub_queue_mutex.unlock();
 	//subs.clear();
 	trigger_paint();
 }

@@ -76,7 +76,9 @@ void overlay_send_frame(ISubRenderFrame *sub_frame, long long start, long long s
 		subs.push_back(y);
 	}
 
+	g_sub_queue_mutex.lock();
 	subs_queue.push(subs);
+	g_sub_queue_mutex.unlock();
 
 	//free the frame
 	//sub_frame->Release();

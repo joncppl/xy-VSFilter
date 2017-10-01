@@ -1,5 +1,6 @@
 #pragma once
 #include <queue>
+#include <mutex>
 
 #ifdef FROM_OVERLAY
 typedef ULONGLONG REFERENCE_TIME;
@@ -28,3 +29,4 @@ extern ISubRenderFrame *frame;
 extern std::queue<std::vector<tsubdata>> subs_queue;
 //extern std::vector<tsubdata> subs;
 extern RECT clipRect;
+extern std::mutex g_sub_queue_mutex;
