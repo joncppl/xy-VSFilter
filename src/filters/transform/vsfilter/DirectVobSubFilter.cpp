@@ -664,7 +664,7 @@ void CDirectVobSubFilter::InitSubPicQueue()
 
     CacheManager::GetClipperAlphaMaskMruCache()->SetMaxItemNum(m_xy_int_opt[INT_CLIPPER_MRU_CACHE_ITEM_NUM]);
     CacheManager::GetTextInfoCache()->SetMaxItemNum(m_xy_int_opt[INT_TEXT_INFO_CACHE_ITEM_NUM]);
-    //CacheManager::GetAssTagListMruCache()->SetMaxItemNum(m_xy_int_opt[INT_ASS_TAG_LIST_CACHE_ITEM_NUM]);
+    CacheManager::GetAssTagListMruCache()->SetMaxItemNum(m_xy_int_opt[INT_ASS_TAG_LIST_CACHE_ITEM_NUM]);
 
     SubpixelPositionControler::GetGlobalControler().SetSubpixelLevel( static_cast<SubpixelPositionControler::SUBPIXEL_LEVEL>(m_xy_int_opt[INT_SUBPIXEL_POS_LEVEL]) );
 
@@ -1147,11 +1147,11 @@ STDMETHODIMP CDirectVobSubFilter::get_CachesInfo(CachesInfo* caches_info)
     caches_info->text_info_cache_cur_item_num   = CacheManager::GetTextInfoCache()->GetCurItemNum();
     caches_info->text_info_cache_hit_count      = CacheManager::GetTextInfoCache()->GetCacheHitCount();
     caches_info->text_info_cache_query_count    = CacheManager::GetTextInfoCache()->GetQueryCount();
-
-    //caches_info->word_info_cache_cur_item_num   = CacheManager::GetAssTagListMruCache()->GetCurItemNum();
-    //caches_info->word_info_cache_hit_count      = CacheManager::GetAssTagListMruCache()->GetCacheHitCount();
-    //caches_info->word_info_cache_query_count    = CacheManager::GetAssTagListMruCache()->GetQueryCount();    
     
+    caches_info->word_info_cache_cur_item_num   = CacheManager::GetAssTagListMruCache()->GetCurItemNum();
+    caches_info->word_info_cache_hit_count      = CacheManager::GetAssTagListMruCache()->GetCacheHitCount();
+    caches_info->word_info_cache_query_count    = CacheManager::GetAssTagListMruCache()->GetQueryCount();    
+
     caches_info->scanline_cache_cur_item_num = CacheManager::GetScanLineDataMruCache()->GetCurItemNum();
     caches_info->scanline_cache_hit_count    = CacheManager::GetScanLineDataMruCache()->GetCacheHitCount();
     caches_info->scanline_cache_query_count  = CacheManager::GetScanLineDataMruCache()->GetQueryCount();
@@ -1713,6 +1713,9 @@ void CDirectVobSubFilter::SetSubtitle(ISubStream* pSubStream, bool fApplyDefStyl
             case CSimpleTextSubtitle::YCbCrMatrix_BT709:
                 m_video_yuv_matrix_decided_by_sub = ColorConvTable::BT709;
                 break;
+            case CSimpleTextSubtitle::YCbCrMatrix_BT2020:
+                m_video_yuv_matrix_decided_by_sub = ColorConvTable::BT2020;
+                break;
             default:
                 m_video_yuv_matrix_decided_by_sub = ColorConvTable::NONE;
                 break;
@@ -1752,6 +1755,10 @@ void CDirectVobSubFilter::SetSubtitle(ISubStream* pSubStream, bool fApplyDefStyl
             else if ( m_xy_str_opt[STRING_PGS_YUV_MATRIX].CompareNoCase(_T("BT709"))==0 )
             {
                 color_type = CompositionObject::YUV_Rec709;
+            }
+            else if ( m_xy_str_opt[STRING_PGS_YUV_MATRIX].CompareNoCase(_T("BT2020"))==0 )
+            {
+                color_type = CompositionObject::YUV_Rec2020;
             }
 
             m_video_yuv_matrix_decided_by_sub = (m_w > m_bt601Width || m_h > m_bt601Height) ? ColorConvTable::BT709 : 
@@ -2132,6 +2139,10 @@ void CDirectVobSubFilter::SetYuvMatrix()
             {
                 yuv_matrix = ColorConvTable::BT709;
             }
+            else if (m_xy_str_opt[STRING_CONSUMER_YUV_MATRIX].Right(4).CompareNoCase(L"2020")==0)
+            {
+                yuv_matrix = ColorConvTable::BT2020;
+            }
             else
             {
                 XY_LOG_WARN(L"Can NOT get useful YUV range from consumer:"<<m_xy_str_opt[STRING_CONSUMER_YUV_MATRIX].GetString());
@@ -2149,6 +2160,9 @@ void CDirectVobSubFilter::SetYuvMatrix()
             break;
         case CDirectVobSub::BT_709:
             yuv_matrix = ColorConvTable::BT709;
+            break;
+        case CDirectVobSub::BT_2020:
+            yuv_matrix = ColorConvTable::BT2020;
             break;
         case CDirectVobSub::GUESS:
         default:        
@@ -2416,9 +2430,9 @@ STDMETHODIMP CDirectVobSubFilter::XySetInt( unsigned field, int value )
     case DirectVobSubXyOptions::INT_TEXT_INFO_CACHE_ITEM_NUM:
         CacheManager::GetTextInfoCache()->SetMaxItemNum(m_xy_int_opt[field]);
         break;
-    //case DirectVobSubXyOptions::INT_ASS_TAG_LIST_CACHE_ITEM_NUM:
-    //    CacheManager::GetAssTagListMruCache()->SetMaxItemNum(m_xy_int_opt[field]);
-    //    break;
+    case DirectVobSubXyOptions::INT_ASS_TAG_LIST_CACHE_ITEM_NUM:
+        CacheManager::GetAssTagListMruCache()->SetMaxItemNum(m_xy_int_opt[field]);
+        break;
     case DirectVobSubXyOptions::INT_SUBPIXEL_VARIANCE_CACHE_ITEM_NUM:
         CacheManager::GetSubpixelVarianceCache()->SetMaxItemNum(m_xy_int_opt[field]);
         break;

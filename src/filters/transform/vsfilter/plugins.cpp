@@ -84,7 +84,7 @@ public:
 
         CacheManager::GetClipperAlphaMaskMruCache()->SetMaxItemNum(m_xy_int_opt[INT_CLIPPER_MRU_CACHE_ITEM_NUM]);
         CacheManager::GetTextInfoCache()->SetMaxItemNum(m_xy_int_opt[INT_TEXT_INFO_CACHE_ITEM_NUM]);
-        //CacheManager::GetAssTagListMruCache()->SetMaxItemNum(m_xy_int_opt[INT_ASS_TAG_LIST_CACHE_ITEM_NUM]);
+        CacheManager::GetAssTagListMruCache()->SetMaxItemNum(m_xy_int_opt[INT_ASS_TAG_LIST_CACHE_ITEM_NUM]);
 
         SubpixelPositionControler::GetGlobalControler().SetSubpixelLevel( static_cast<SubpixelPositionControler::SUBPIXEL_LEVEL>(m_xy_int_opt[INT_SUBPIXEL_POS_LEVEL]) );
         
@@ -125,6 +125,9 @@ public:
             case CSimpleTextSubtitle::YCbCrMatrix_BT709:
                 yuv_matrix = ColorConvTable::BT709;
                 break;
+            case CSimpleTextSubtitle::YCbCrMatrix_BT2020:
+                yuv_matrix = ColorConvTable::BT2020;
+                break;
             case CSimpleTextSubtitle::YCbCrMatrix_AUTO:
             default:
                 yuv_matrix = ColorConvTable::BT601;                
@@ -140,6 +143,9 @@ public:
                 break;
             case CDirectVobSub::BT_709:
                 yuv_matrix = ColorConvTable::BT709;
+                break;
+            case CDirectVobSub::BT_2020:
+                yuv_matrix = ColorConvTable::BT2020;
                 break;
             case CDirectVobSub::GUESS:
                 yuv_matrix = (dst.w > m_bt601Width || dst.h > m_bt601Height) ? ColorConvTable::BT709 : ColorConvTable::BT601;
@@ -290,6 +296,7 @@ public:
 						fn = fn2;
 						handles.SetCount(1);
 						handles.Add(h);
+						CFileGetStatus(fn, fs);
 					}
 				}
 			}
